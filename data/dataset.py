@@ -7,35 +7,36 @@ import functools
 import collections
 import os
 
-import .global_variables as G
-
-
-def normalize_gaussian_data(colname, x, epsilon=1e-9):
-    numerator = x - G.MEANVARS[colname]['mean']
-    denominator = G.MEANVARS[colname]['std'] + epsilon
-    return numerator / denominator
-
-def normalize_numerical_data(colname, x, epsilon=1e-9):
-    numerator = x - G.MEANVARS[colname]['min']
-    denominator = G.MEANVARS[colname]['max'] - G.MEANVARS[colname]['min'] + epsilon
-    return numerator / denominator
+import global_variables as G
 
 
 class CSVSequentialDataset(object):
+    """CSVSequentialDataset
+    NOTE: Acoording to tf official documentation link
+    https://tensorflow.google.cn/api_docs/python/tf/data/Dataset?hl=zh-cn#from_generator
+
+    1. You should not use this method if you need to serialize 
+       your model and restore it in a different environment with different devices.
+    2. Mutating global variables or external state can cause undefined behavior, 
+       and we recommend that you explicitly cache any external state in generator 
+       before calling `Dataset.from_generator()`.
+    """
     def __init__(self, csv_path, lookback=14, batch_size=32):
         self.csv_path = csv_path
         self.lookback = lookback
         self.batch_size = batch_size
+
+        # Explicitly cache all external variables
+        self.stock_numericals = G.STOCK_NUMERICALS.copy()
+        self.basic_numericals = G.BASIC_NUMERICALS.copy()
+        self.meanvars = G.MEANVARS.copy()
+        self.stock_basics = self.init_numerical_csv('./stock_basics.csv')
         
         # Dynamicly maintain a candidate list of all csv files
         self.candidates = np.random.choice(csv_path, size=[batch_size], replace=False).tolist()
         self.iterators = [0 for _ in range(batch_size)]
         self.diffset = [csv for csv in csv_path if csv not in self.candidates]
         self.candidate_df = [self.init_numerical_csv(cand) for cand in self.candidates]
-
-        # pd.DtaFrame use shallow copy for indexing
-        # thus using a copy of the original version
-        self.stock_basics = self.init_numerical_csv('./stock_basics.csv')
 
 
     def __call__(self):
@@ -73,7 +74,7 @@ class CSVSequentialDataset(object):
             self.iterators[index]: self.iterators[index] + self.lookback
         ]
 
-        subdf_numerical = subdf[G.STOCK_NUMERICALS].values.astype(np.float32)
+        subdf_numerical = subdf[self.stock_numericals].values.astype(np.float32)
         # Stock catogorical features
         weekday = get_int32_representation(self.candidate_df[index]['weekday'], subdf['weekday'])
 
@@ -81,7 +82,7 @@ class CSVSequentialDataset(object):
         codenum = int(self.candidates[index].split('/')[-1].split('.')[0])
         basic_line = self.stock_basics[self.stock_basics['codenum'] == codenum]
         assert len(basic_line) == 1, f'find {len(basic_line)} lines of {codenum} in stock_basics.csv'
-        basic_numerical = basic_line[G.BASIC_NUMERICALS].values.astype(np.float32)
+        basic_numerical = basic_line[self.basic_numericals].values.astype(np.float32)
 
         # Basic categorical features
         industry = get_int32_representation(self.stock_basics['industry'], basic_line['industry'])
@@ -103,16 +104,28 @@ class CSVSequentialDataset(object):
         self.candidate_df[index] = self.init_numerical_csv(newcand)
 
 
-    def init_numerical_csv(self, csvname, norm_fn=normalize_gaussian_data):
+    def init_numerical_csv(self, csvname):
         """init_numerical_csv
-        Use either Gaussian normalization or 0-1 normalization for numerical columns
+        Use either gaussian normalization or 0-1 normalization for numerical columns
         """
         df = pd.read_csv(csvname)
         for col in df.columns:
-            if col in G.MEANVARS.keys():
-                norm_fn_partialized = functools.partial(norm_fn, col)
+            if col in self.meanvars.keys():
+                norm_fn_partialized = functools.partial(self.normalize_gaussian_data, col)
                 df[col] = df[col].apply(norm_fn_partialized)
         return df
+
+
+    def normalize_gaussian_data(self, colname, x, epsilon=1e-9):
+        numerator = x - self.meanvars[colname]['mean']
+        denominator = self.meanvars[colname]['std'] + epsilon
+        return numerator / denominator
+
+
+    def normalize_numerical_data(self, colname, x, epsilon=1e-9):
+        numerator = x - self.meanvars[colname]['min']
+        denominator = self.meanvars[colname]['max'] - self.meanvars[colname]['min'] + epsilon
+        return numerator / denominator
 
 
 def create_dataset_from_file(csv_path, 
