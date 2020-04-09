@@ -19,6 +19,7 @@ CSV_PROFIT_FILES = [os.path.join('./profit/', x) for x in PROFIT_BASEDIRS]
 CATEGORIES = {
     'industry': list(set(STOCK_BASICS['industry'].values.tolist())),
     'area': list(set(STOCK_BASICS['area'].values.tolist())),
+    #'codenum': list(set(STOCK_BASICS['codenum'].values.tolist())), 
     'weekday': ['Mon', 'Tue', 'Wedn', 'Thur', 'Fri', 'Sat', 'Sun']
 }
 # for categarical feature columns
@@ -32,11 +33,11 @@ COLUMNS = [
 BASIC_COLUMNS = [
     'industry', 'area', 'pe', 'outstanding', 'totals',
     'totalAssets', 'liquidAssets', 'fixedAssets', 'reserved',
-    'reservedPerShare', 'esp', 'bvps', 'pb', 'undp',
+    'reservedPerShare', 'esp', 'bvps', 'pb', 'undp', 'codenum',
     'perundp', 'rev', 'profit', 'gpr', 'npr', 'holders', 'exist_time'
 ]
 STOCK_CATEGORICALS = ['weekday']
-BASIC_CATEGORICALS = ['industry', 'area']
+BASIC_CATEGORICALS = ['industry', 'area', 'codenum']
 STOCK_NUMERICALS = [col for col in COLUMNS if col not in STOCK_CATEGORICALS]
 BASIC_NUMERICALS = [col for col in BASIC_COLUMNS if col not in BASIC_CATEGORICALS]
 

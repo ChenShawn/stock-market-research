@@ -2,14 +2,13 @@ import tensorflow as tf
 import argparse
 import os
 
-import models as zoo
+from models import burn_in_lstm
 import global_variables as G
 import dataset as ds
 
 parser = argparse.ArgumentParser(description='Training')
 parser.add_argument('-f', '--func', default='train', type=str, help='train|eval')
 parser.add_argument('--gpu', default='0', type=str, help='which gpu to be used')
-parser.add_argument('--loss', default='mse', type=str, help='loss function')
 parser.add_argument('--label-name', default='amount', type=str, help='label name')
 parser.add_argument('--csv-dir', default='./data', type=str, help='csv path')
 parser.add_argument('--logdir', default='./tensorboard', type=str, help='tf logs path')
@@ -37,11 +36,15 @@ def train():
         batch_size=args.batch_size, num_epochs=1, 
         shuffle=False, label_name=args.label_name)
 
-    # model = zoo.UnionFeatureModel()
-    model = zoo.build_sequential_model()
+    model = burn_in_lstm.BurnInStateLSTM()
+    loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
     adam = tf.keras.optimizers.Adam(lr=args.lr)
-    metrics = [tf.keras.metrics.MeanAbsolutePercentageError('mape'), 'mae', 'mse']
-    model.compile(loss=args.loss, optimizer=adam, metrics=metrics)
+    metrics = [
+        tf.keras.metrics.BinaryAccuracy(name='acc'),
+        tf.keras.metrics.Precision(name='precision'),
+        tf.keras.metrics.Recall(name='recall')
+    ]
+    model.compile(loss=loss, optimizer=adam, metrics=metrics)
 
     # Can only use `model.save_weights` instead of `model.save`
     # because the latter is not supported for user-defined `tf.keras.Model`

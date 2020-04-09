@@ -20,11 +20,23 @@ class CSVSequentialDataset(object):
     2. Mutating global variables or external state can cause undefined behavior, 
        and we recommend that you explicitly cache any external state in generator 
        before calling `Dataset.from_generator()`.
+
+    TODO: 
+    1. the sampling may become non-iid since the data window are moving in order.
+       An alternative implmentation is to adopt random access to csv rows,
+       and reload candidates when a fixed number of iteration is reached.
+    2. `__call__` should have a terminal condition
     """
-    def __init__(self, csv_path, lookback=14, batch_size=32):
+    def __init__(self, csv_path, lookback=14, batch_size=32, iter_method='random'):
+        """CSVSequentialDataset.__init__
+        iter_method: random | order
+        """
         self.csv_path = csv_path
         self.lookback = lookback
+        self.max_reload = len(csv_path)
         self.batch_size = batch_size
+        self.num_reload = 0
+        self.iter_method = iter_method
 
         # Explicitly cache all external variables
         self.stock_numericals = G.STOCK_NUMERICALS.copy()
@@ -40,34 +52,32 @@ class CSVSequentialDataset(object):
 
 
     def __call__(self):
-        while True:
-            xs_num, xs_cat, basic_num, basic_cat, batch_ys = [], [], [], [], []
+        while self.num_reload < self.max_reload:
+            xs_num, basic_num, basic_cat, batch_ys = [], [], [], []
             for idx in range(len(self.candidate_df)):
-                self.iterators[idx] += 1
                 if self.iterators[idx] >= len(self.candidate_df[idx]) - self.lookback:
                     # reload another candidate if current csv iterated to the end
                     self.reload_another_candidate(idx)
 
-                snum, scat, bnum, bcat, label = self.read_next_batch(idx)
-                xs_num.append(snum)
-                xs_cat.append(scat)
+                seq, bnum, bcat, label = self.read_next_batch(idx)
+                self.iterators[idx] += 1
+                xs_num.append(seq)
                 basic_num.append(bnum)
                 basic_cat.append(bcat)
                 batch_ys.append(label)
             xs_num = tf.stack(xs_num, axis=0)
-            xs_cat = tf.stack(xs_cat, axis=0)
             basic_num = tf.concat(basic_num, axis=0)
             basic_cat = tf.stack(basic_cat, axis=0)
             batch_ys = tf.concat(batch_ys, axis=0)
-            yield xs_num, xs_cat, basic_num, basic_cat, batch_ys
+            yield xs_num, basic_num, basic_cat, batch_ys
         return -1
 
 
     def read_next_batch(self, index):
-        def get_int32_representation(valuecol, coldf):
+        def get_int32_representation(valuecol, coldf, dtype=np.int32):
             value_set = list(set(valuecol.values.tolist()))
             value_hash = dict(zip(value_set, list(range(len(value_set)))))
-            return coldf.apply(lambda x: value_hash[x]).values.astype(np.int32)
+            return coldf.apply(lambda x: value_hash[x]).values.astype(dtype)
 
         # Stock numerical features
         subdf = self.candidate_df[index].iloc[
@@ -76,7 +86,10 @@ class CSVSequentialDataset(object):
 
         subdf_numerical = subdf[self.stock_numericals].values.astype(np.float32)
         # Stock catogorical features
-        weekday = get_int32_representation(self.candidate_df[index]['weekday'], subdf['weekday'])
+        weekday = get_int32_representation(
+            self.candidate_df[index]['weekday'], subdf['weekday'])
+        weekday_onehot = np.eye(5, dtype=np.int32)[weekday]
+        seqfeat = tf.concat([subdf_numerical, weekday_onehot], axis=-1)
 
         # Basic numerical features
         codenum = int(self.candidates[index].split('/')[-1].split('.')[0])
@@ -87,11 +100,12 @@ class CSVSequentialDataset(object):
         # Basic categorical features
         industry = get_int32_representation(self.stock_basics['industry'], basic_line['industry'])
         area = get_int32_representation(self.stock_basics['area'], basic_line['area'])
-        basic_categorical = tf.concat([industry, area], axis=-1)
+        stockcode = get_int32_representation(self.stock_basics['codenum'], basic_line['codenum'])
+        basic_categorical = tf.concat([industry, area, stockcode], axis=-1)
 
         # processing labels
         label = [subdf['label'].iloc[-1]]
-        return subdf_numerical, weekday, basic_numerical, basic_categorical, label
+        return seqfeat, basic_numerical, basic_categorical, label
 
 
     def reload_another_candidate(self, index):
@@ -102,6 +116,7 @@ class CSVSequentialDataset(object):
         self.candidates[index] = newcand
         self.iterators[index] = 0
         self.candidate_df[index] = self.init_numerical_csv(newcand)
+        self.num_reload += 1
 
 
     def init_numerical_csv(self, csvname):
@@ -116,11 +131,20 @@ class CSVSequentialDataset(object):
         return df
 
 
+    def move_iterator(self, index):
+        if self.iter_method == 'order':
+            return self.iterators[index] + 1
+        elif self.iter_method == 'random':
+            maxiter = len(self.candidate_df[index]) - self.lookback
+            return random.randint(0, maxiter - 1)
+        else:
+            raise NotImplementedError('iter_method should be either `order` or `random`')
+
+
     def normalize_gaussian_data(self, colname, x, epsilon=1e-9):
         numerator = x - self.meanvars[colname]['mean']
         denominator = self.meanvars[colname]['std'] + epsilon
         return numerator / denominator
-
 
     def normalize_numerical_data(self, colname, x, epsilon=1e-9):
         numerator = x - self.meanvars[colname]['min']
@@ -179,18 +203,17 @@ def build_input_features():
 if __name__ == '__main__':
     generator = CSVSequentialDataset(G.CSV_STOCK_FILES, batch_size=32)
     dataset = tf.data.Dataset.from_generator(generator, 
-        output_types=(tf.float32, tf.int32, tf.float32, tf.int32, tf.int32))
+        output_types=(tf.float32, tf.float32, tf.int32, tf.int32))
     
-    a,b,c,d,e = next(iter(dataset))
-    a,b,c,d,e = next(iter(dataset))
-    a,b,c,d,e = next(iter(dataset))
-    a,b,c,d,e = next(iter(dataset))
-    a,b,c,d,e = next(iter(dataset))
-    a,b,c,d,e = next(iter(dataset))
+    a,b,c,d = next(iter(dataset))
+    a,b,c,d = next(iter(dataset))
+    a,b,c,d = next(iter(dataset))
+    a,b,c,d = next(iter(dataset))
+    a,b,c,d = next(iter(dataset))
+    a,b,c,d = next(iter(dataset))
     print('\n\n\n\n\n\t')
     print(a, end='\n\n')
     print(b, end='\n\n')
     print(c, end='\n\n')
     print(d, end='\n\n')
-    print(e, end='\n\n')
-    print(a.shape, b.shape, c.shape, d.shape, e.shape)
+    print(a.shape, b.shape, c.shape, d.shape)
