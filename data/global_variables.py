@@ -8,12 +8,12 @@ import json
 GLOBAL VARIABLES DEFINITIONS
 """
 # Global stock_basics.csv DataFrame stored in memory permanently
-STOCK_BASICS = pd.read_csv('./stock_basics.csv')
-CSV_BASEDIRS = os.listdir('./stocks/')
-CSV_STOCK_FILES = [os.path.join('./stocks/', x) for x in CSV_BASEDIRS]
+STOCK_BASICS = pd.read_csv('./data/stock_basics.csv')
+CSV_BASEDIRS = os.listdir('./data/stocks/')
+CSV_STOCK_FILES = [os.path.join('./data/stocks/', x) for x in CSV_BASEDIRS]
 
-PROFIT_BASEDIRS = os.listdir('./profit/')
-CSV_PROFIT_FILES = [os.path.join('./profit/', x) for x in PROFIT_BASEDIRS]
+PROFIT_BASEDIRS = os.listdir('./data/profit/')
+CSV_PROFIT_FILES = [os.path.join('./data/profit/', x) for x in PROFIT_BASEDIRS]
 
 # for numerical feature columns
 CATEGORIES = {
@@ -23,7 +23,7 @@ CATEGORIES = {
     'weekday': ['Mon', 'Tue', 'Wedn', 'Thur', 'Fri', 'Sat', 'Sun']
 }
 # for categarical feature columns
-with open('./feature.json', 'r') as fd:
+with open('./data/feature.json', 'r') as fd:
     MEANVARS = json.load(fd)
 
 COLUMNS = [

@@ -3,14 +3,12 @@ import argparse
 import os
 
 from models import burn_in_lstm
-import global_variables as G
-import dataset as ds
+from data.dataset import CSVSequentialDataset
 
 parser = argparse.ArgumentParser(description='Training')
-parser.add_argument('-f', '--func', default='train', type=str, help='train|eval')
 parser.add_argument('--gpu', default='0', type=str, help='which gpu to be used')
-parser.add_argument('--label-name', default='amount', type=str, help='label name')
-parser.add_argument('--csv-dir', default='./data', type=str, help='csv path')
+parser.add_argument('--label-name', default='label', type=str, help='label name')
+parser.add_argument('--csv-dir', default='./data/stocks', type=str, help='csv path')
 parser.add_argument('--logdir', default='./tensorboard', type=str, help='tf logs path')
 parser.add_argument('--save-dir', default='./train', type=str, help='csv path')
 parser.add_argument('--batch-size', default=256, type=int, help='batch size')
@@ -27,16 +25,18 @@ def train():
         os.makedirs(args.save_dir)
 
     # build dataset seperately for train and eval
-    data_train = ds.create_dataset_from_file(
-        csv_path=os.path.join(args.csv_dir, 'single_line_train.csv'), 
-        batch_size=args.batch_size, num_epochs=args.num_epochs, 
-        shuffle=True, label_name=args.label_name)
-    data_eval = ds.create_dataset_from_file(
-        csv_path=os.path.join(args.csv_dir, 'single_line_test.csv'), 
-        batch_size=args.batch_size, num_epochs=1, 
-        shuffle=False, label_name=args.label_name)
+    csv_files = os.listdir(args.csv_dir)
+    csv_files = [os.path.join(args.csv_dir, fn) for fn in csv_files]
+    dataset_generator = CSVSequentialDataset(csv_files, batch_size=args.batch_size)
+    dataset = tf.data.Dataset.from_generator(dataset_generator, 
+        output_types=((tf.float32, tf.float32, tf.int32), tf.int32))
+    # data_eval = ds.create_dataset_from_file(
+    #     csv_path=os.path.join(args.csv_dir, 'single_line_test.csv'), 
+    #     batch_size=args.batch_size, num_epochs=1, 
+    #     shuffle=False, label_name=args.label_name)
 
-    model = burn_in_lstm.BurnInStateLSTM()
+    model = burn_in_lstm.SimpleSequentialLSTM()
+    # model = burn_in_lstm.BurnInStateLSTM()
     loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
     adam = tf.keras.optimizers.Adam(lr=args.lr)
     metrics = [
@@ -57,18 +57,18 @@ def train():
         print(' [*] Loaded pretrained model {}.h5'.format(args.label_name))
 
     callbacks = [tf.keras.callbacks.TensorBoard(log_dir=args.logdir)]
-    model.fit(data_train, 
+    model.fit(dataset, 
         epochs=args.num_epochs, 
-        validation_data=data_eval,
+        #validation_data=data_eval,
         callbacks=callbacks)
     try:
-        model.save_weights(os.path.join(args.save_dir, args.label_name + '.h5'))
-    except:
         model.save(os.path.join(args.save_dir, args.label_name + '.h5'))
+    except:
+        model.save_weights(os.path.join(args.save_dir, args.label_name + '.h5'))
 
     # evaluation
-    results = model.evaluate(data_eval)
-    print('\n\n [*] Evaluation: ', results)
+    # results = model.evaluate(data_eval)
+    # print('\n\n [*] Evaluation: ', results)
 
 
 def main():
@@ -81,13 +81,7 @@ def main():
         if len(args.gpu) > 0:
             os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
-    if args.func == 'train':
-        train()
-    elif args.func == 'eval':
-        # evaluate()
-        pass
-    else:
-        raise NotImplementedError()
+    train()
     print(' [*] Done!!')
 
 

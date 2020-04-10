@@ -7,7 +7,7 @@ import functools
 import collections
 import os
 
-import global_variables as G
+import data.global_variables as G
 
 
 class CSVSequentialDataset(object):
@@ -42,7 +42,7 @@ class CSVSequentialDataset(object):
         self.stock_numericals = G.STOCK_NUMERICALS.copy()
         self.basic_numericals = G.BASIC_NUMERICALS.copy()
         self.meanvars = G.MEANVARS.copy()
-        self.stock_basics = self.init_numerical_csv('./stock_basics.csv')
+        self.stock_basics = self.init_numerical_csv('./data/stock_basics.csv')
         
         # Dynamicly maintain a candidate list of all csv files
         self.candidates = np.random.choice(csv_path, size=[batch_size], replace=False).tolist()
@@ -69,7 +69,7 @@ class CSVSequentialDataset(object):
             basic_num = tf.concat(basic_num, axis=0)
             basic_cat = tf.stack(basic_cat, axis=0)
             batch_ys = tf.concat(batch_ys, axis=0)
-            yield xs_num, basic_num, basic_cat, batch_ys
+            yield (xs_num, basic_num, basic_cat), batch_ys
         return -1
 
 
@@ -111,7 +111,7 @@ class CSVSequentialDataset(object):
     def reload_another_candidate(self, index):
         newcand = random.choice(self.diffset)
         diffidx = self.diffset.index(newcand)
-        print(f' [*] Replace candidate {self.candidates[index]} with {self.diffset[diffidx]}')
+        # print(f' [*] Replace candidate {self.candidates[index]} with {self.diffset[diffidx]}')
         self.diffset[diffidx] = self.candidates[index]
         self.candidates[index] = newcand
         self.iterators[index] = 0

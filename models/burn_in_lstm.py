@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 from collections import namedtuple
 
-import seq2seq
+from . import seq2seq
 
 
 def build_lstm_by_device(units, input_shape):
@@ -16,6 +16,50 @@ def build_lstm_by_device(units, input_shape):
             input_shape=(None, input_shape), 
             return_sequences=True, return_state=True)
     return lstm
+
+
+class SimpleSequentialLSTM(tf.keras.Model):
+    """SimpleSequentialLSTM
+    A simpler version of BurnInStateLSTM,
+    implemented for debugging and baseline comparison
+    """
+    def __init__(self):
+        super(SimpleSequentialLSTM, self).__init__()
+        self.code_embedding = tf.keras.layers.Embedding(3825, 64)
+        self.area_embedding = tf.keras.layers.Embedding(32, 6)
+        self.industry_embedding = tf.keras.layers.Embedding(110, 12)
+        self.lstm = build_lstm_by_device(128, 20)
+        self.shared_dense = tf.keras.layers.Dense(64, 'relu')
+        self.basic_dense = tf.keras.layers.Dense(64, 'relu')
+        self.global_dense = tf.keras.layers.Dense(1)
+
+
+    def call(self, input_ops):
+        input_seq, input_basic_num, input_basic_cat = input_ops
+
+        # processing sequential features
+        seq_list = tf.unstack(input_seq, axis=1)
+        seq_embedding = [self.shared_dense(seq) for seq in seq_list]
+        lstm_output, state_h, state_c = self.lstm(seq_embedding)
+        
+        # processing basic features
+        industry, area, codenum = tf.unstack(input_basic_cat, axis=-1)
+        industry_embedded = self.industry_embedding(industry)
+        area_embedded = self.area_embedding(area)
+        codenum_embedded = self.code_embedding(codenum)
+
+        basic_features = tf.concat([
+            input_basic_num, 
+            industry_embedded,
+            area_embedded, 
+            codenum_embedded
+        ], axis=-1)
+        basic_embedding = self.basic_dense(basic_features)
+
+        # processing global features
+        global_features = tf.concat([state_h, basic_embedding], axis=-1)
+        logits = self.global_dense(global_features)
+        return logits
 
 
 class BurnInStateLSTM(tf.keras.Model):
@@ -36,7 +80,9 @@ class BurnInStateLSTM(tf.keras.Model):
         self.global_dense = tf.keras.layers.Dense(1)
 
 
-    def call(self, input_seq, input_basic):
+    def call(self, input_ops):
+        input_seq, input_basic_num, input_basic_cat = input_ops
+
         # processing sequential features
         seq_list = tf.unstack(input_seq, axis=1)
         assert len(seq_list) > self.burn_in_length, \
@@ -57,15 +103,12 @@ class BurnInStateLSTM(tf.keras.Model):
         context_flatten = self.flatten(context)
         
         # processing basic features
-        assert len(input_basic) == 2, \
-            f'input_basic must be iterable with numerical and categorical features: ' \
-            f'len(input_basic)=={len(input_basic)}'
-        industry, area, codenum = tf.split(input_basic[1], 3, axis=1)
+        industry, area, codenum = tf.unstack(input_basic_cat, axis=-1)
         industry_embedded = self.industry_embedding(industry)
         area_embedded = self.area_embedding(area)
         codenum_embedded = self.code_embedding(codenum)
 
-        basic_numerical = self.basic_dense(input_basic[0])
+        basic_numerical = self.basic_dense(input_basic_num)
 
         # processing global features
         global_features = tf.concat([
