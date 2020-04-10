@@ -9,7 +9,7 @@ def build_lstm_by_device(units, input_shape):
     if tf.test.is_built_with_cuda():
         lstm = tf.keras.layers.LSTM(
             units=units, input_shape=(None, input_shape), 
-            return_sequence=True, return_state=True)
+            return_sequences=True, return_state=True)
     else:
         lstm = tf.keras.layers.RNN(
             tf.keras.layers.LSTMCell(units), 
@@ -39,7 +39,7 @@ class SimpleSequentialLSTM(tf.keras.Model):
 
         # processing sequential features
         seq_list = tf.unstack(input_seq, axis=1)
-        seq_embedding = [self.shared_dense(seq) for seq in seq_list]
+        seq_embedding = tf.stack([self.shared_dense(seq) for seq in seq_list], axis=1)
         lstm_output, state_h, state_c = self.lstm(seq_embedding)
         
         # processing basic features
@@ -49,10 +49,7 @@ class SimpleSequentialLSTM(tf.keras.Model):
         codenum_embedded = self.code_embedding(codenum)
 
         basic_features = tf.concat([
-            input_basic_num, 
-            industry_embedded,
-            area_embedded, 
-            codenum_embedded
+            input_basic_num, industry_embedded, area_embedded, codenum_embedded
         ], axis=-1)
         basic_embedding = self.basic_dense(basic_features)
 

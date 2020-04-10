@@ -5,9 +5,13 @@ import random
 import datetime
 import functools
 import collections
+import logging
 import os
 
 import data.global_variables as G
+
+logfmt = '[%(levelname)s][%(asctime)s][%(funcName)s][%(lineno)d] %(message)s'
+logging.basicConfig(filename='./data/logs/dataset.log', level=logging.INFO, format=logfmt)
 
 
 class CSVSequentialDataset(object):
@@ -21,22 +25,19 @@ class CSVSequentialDataset(object):
        and we recommend that you explicitly cache any external state in generator 
        before calling `Dataset.from_generator()`.
 
-    TODO: 
-    1. the sampling may become non-iid since the data window are moving in order.
-       An alternative implmentation is to adopt random access to csv rows,
-       and reload candidates when a fixed number of iteration is reached.
-    2. `__call__` should have a terminal condition
+    TODO:
+    1. random access to csv: done
+    2. terminal condition: done 
+    3. Split training set and validation set.
+    4. Add logging: done
     """
-    def __init__(self, csv_path, lookback=14, batch_size=32, iter_method='random'):
-        """CSVSequentialDataset.__init__
-        iter_method: random | order
-        """
-        self.csv_path = csv_path
+    def __init__(self, csv_path, lookback=14, batch_size=32):
+        self.csv_path = csv_path.copy()
+        random.shuffle(self.csv_path)
         self.lookback = lookback
-        self.max_reload = len(csv_path)
         self.batch_size = batch_size
         self.num_reload = 0
-        self.iter_method = iter_method
+        self.logger = logging.getLogger(__name__)
 
         # Explicitly cache all external variables
         self.stock_numericals = G.STOCK_NUMERICALS.copy()
@@ -45,14 +46,14 @@ class CSVSequentialDataset(object):
         self.stock_basics = self.init_numerical_csv('./data/stock_basics.csv')
         
         # Dynamicly maintain a candidate list of all csv files
-        self.candidates = np.random.choice(csv_path, size=[batch_size], replace=False).tolist()
+        self.candidates = self.csv_path[: batch_size]
         self.iterators = [0 for _ in range(batch_size)]
-        self.diffset = [csv for csv in csv_path if csv not in self.candidates]
         self.candidate_df = [self.init_numerical_csv(cand) for cand in self.candidates]
+        self.logger.info('CSV datasets has been built')
 
 
     def __call__(self):
-        while self.num_reload < self.max_reload:
+        while self.num_reload < len(self.csv_path) - self.batch_size:
             xs_num, basic_num, basic_cat, batch_ys = [], [], [], []
             for idx in range(len(self.candidate_df)):
                 if self.iterators[idx] >= len(self.candidate_df[idx]) - self.lookback:
@@ -70,7 +71,8 @@ class CSVSequentialDataset(object):
             basic_cat = tf.stack(basic_cat, axis=0)
             batch_ys = tf.concat(batch_ys, axis=0)
             yield (xs_num, basic_num, basic_cat), batch_ys
-        return -1
+        self.reset()
+        return self.next_cand_index
 
 
     def read_next_batch(self, index):
@@ -80,9 +82,12 @@ class CSVSequentialDataset(object):
             return coldf.apply(lambda x: value_hash[x]).values.astype(dtype)
 
         # Stock numerical features
-        subdf = self.candidate_df[index].iloc[
-            self.iterators[index]: self.iterators[index] + self.lookback
-        ]
+        max_entry_size = len(self.candidate_df[index]) - self.lookback - 1
+        assert max_entry_size > 0, \
+            f'data length must be larger than lookback: ' \
+            f'{len(self.candidate_df[index])} < {self.lookback}'
+        entry = random.randint(0, max_entry_size)
+        subdf = self.candidate_df[index].iloc[entry: entry + self.lookback]
 
         subdf_numerical = subdf[self.stock_numericals].values.astype(np.float32)
         # Stock catogorical features
@@ -109,14 +114,14 @@ class CSVSequentialDataset(object):
 
 
     def reload_another_candidate(self, index):
-        newcand = random.choice(self.diffset)
-        diffidx = self.diffset.index(newcand)
-        # print(f' [*] Replace candidate {self.candidates[index]} with {self.diffset[diffidx]}')
-        self.diffset[diffidx] = self.candidates[index]
+        newcand = self.csv_path[self.num_reload + self.batch_size]
+        msg = f'Replace candidate {self.candidates[index]} with {newcand}'
         self.candidates[index] = newcand
         self.iterators[index] = 0
         self.candidate_df[index] = self.init_numerical_csv(newcand)
         self.num_reload += 1
+        self.logger.info(msg)
+        self.logger.info(f'num_reload={self.num_reload}')
 
 
     def init_numerical_csv(self, csvname):
@@ -130,16 +135,13 @@ class CSVSequentialDataset(object):
                 df[col] = df[col].apply(norm_fn_partialized)
         return df
 
-
-    def move_iterator(self, index):
-        if self.iter_method == 'order':
-            return self.iterators[index] + 1
-        elif self.iter_method == 'random':
-            maxiter = len(self.candidate_df[index]) - self.lookback
-            return random.randint(0, maxiter - 1)
-        else:
-            raise NotImplementedError('iter_method should be either `order` or `random`')
-
+    def reset(self):
+        random.shuffle(self.csv_path)
+        self.num_reload = 0
+        self.candidates = self.csv_path[: batch_size]
+        self.iterators = [0 for _ in range(batch_size)]
+        self.candidate_df = [self.init_numerical_csv(cand) for cand in self.candidates]
+        self.logger.info('CSV dataset status has been reset')
 
     def normalize_gaussian_data(self, colname, x, epsilon=1e-9):
         numerator = x - self.meanvars[colname]['mean']
@@ -152,52 +154,67 @@ class CSVSequentialDataset(object):
         return numerator / denominator
 
 
-def create_dataset_from_file(csv_path, 
-                             batch_size=64, 
-                             num_epochs=20, 
-                             shuffle=False, 
-                             label_name='label'):
-    """create_dataset_from_file
-    Used when one single csv file are given
-    NOTE: Fucking Google this API directly modify the list given to `select_columns`
-    """
-    dataset = tf.data.experimental.make_csv_dataset(
-        file_pattern=csv_path,
-        batch_size=batch_size,
-        select_columns=G.COLUMNS.copy(),
-        label_name=label_name,
-        num_epochs=num_epochs,
-        shuffle=shuffle)
-    return dataset
+class CSVSequentialTrainingSet(CSVSequentialDataset):
+    def __init__(self, validation_start='2020-03-11', *args, **kwargs):
+        self.validation_start = validation_start
+        super(CSVSequentialTrainingSet, self).__init__(*args, **kwargs)
+
+    def init_numerical_csv(self, csvname):
+        """init_numerical_csv
+        Overriding base class method `init_numerical_csv`
+        Split training set before `validation_start`
+        """
+        df = pd.read_csv(csvname)
+        if not csvname.endswith('stock_basics.csv'):
+            df = df[df['date'] < self.validation_start]
+        assert len(df) >= self.lookback, \
+            f'User should confirm `len(df)>lookback` is strictly satisfied in download.py' \
+            f'len(df)={len(df)} lookback={self.lookback}'
+        for col in df.columns:
+            if col in self.meanvars.keys():
+                norm_fn_partialized = functools.partial(self.normalize_gaussian_data, col)
+                df[col] = df[col].apply(norm_fn_partialized)
+        return df
 
 
-def build_input_features():
-    import functools
-    # functor to preprocess continuous features
-    def process_continuous_data(mean, var, data):
-        data = (tf.cast(data, tf.float32) - mean) / var
-        return tf.reshape(data, [-1, 1])
-    
-    # Compared with the codes given in tf2.0 documentary, 
-    # this can guarantee the correctness of the feature order
-    feature_columns = []
-    for col in G.COLUMNS:
-        if col in G.CATEGORIES.keys():
-            print('[*] processing column key={} type=CATEGORICAL'.format(col))
-            cat_col = tf.feature_column.categorical_column_with_vocabulary_list(
-                key=col, vocabulary_list=G.CATEGORIES[col])
-            feature = tf.feature_column.indicator_column(cat_col)
-        elif col in G.MEANVARS.keys():
-            print(' [*] processing column key={} type=NUMERICAL'.format(col))
-            norm_fn = functools.partial(process_continuous_data, *G.MEANVARS[col])
-            feature = tf.feature_column.numeric_column(key=col, normalizer_fn=norm_fn)
-        else:
-            continue
-        feature_columns.append(feature)
+class CSVSequentialValidationSet(CSVSequentialDataset):
+    def __init__(self, validation_start='2020-03-11', *args, **kwargs):
+        self.validation_start = validation_start
+        super(CSVSequentialValidationSet, self).__init__(*args, **kwargs)
 
-    # preprocessing layer in keras
-    preprocessing_layer = tf.keras.layers.DenseFeatures(feature_columns)
-    return preprocessing_layer
+    def init_numerical_csv(self, csvname):
+        df = pd.read_csv(csvname)
+        if not csvname.endswith('stock_basics.csv'):
+            df = df[df['date'] > self.validation_start]
+        assert len(df) >= self.lookback, \
+            f'User should confirm `len(df)>lookback` is strictly satisfied in download.py' \
+            f'len(df)={len(df)} lookback={self.lookback}'
+        for col in df.columns:
+            if col in self.meanvars.keys():
+                norm_fn_partialized = functools.partial(self.normalize_gaussian_data, col)
+                df[col] = df[col].apply(norm_fn_partialized)
+        return df
+
+
+def build_dataset_from_generator(basedir, batch_size=32, lookback=14, 
+                                 validation_start='2020-03-11'):
+    csv_files = os.listdir(basedir)
+    csv_files = [os.path.join(basedir, fn) for fn in csv_files]
+    generator_train = CSVSequentialTrainingSet(
+        validation_start=validation_start, 
+        csv_path=csv_files, 
+        lookback=lookback,
+        batch_size=batch_size)
+    generator_eval = CSVSequentialValidationSet(
+        validation_start=validation_start, 
+        csv_path=csv_files, 
+        lookback=lookback,
+        batch_size=batch_size)
+    data_train = tf.data.Dataset.from_generator(generator_train, 
+        output_types=((tf.float32, tf.float32, tf.int32), tf.int32))
+    data_eval = tf.data.Dataset.from_generator(generator_eval, 
+        output_types=((tf.float32, tf.float32, tf.int32), tf.int32))
+    return data_train, data_eval
 
 
 if __name__ == '__main__':

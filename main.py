@@ -3,14 +3,16 @@ import argparse
 import os
 
 from models import burn_in_lstm
-from data.dataset import CSVSequentialDataset
+from data import dataset
 
 parser = argparse.ArgumentParser(description='Training')
-parser.add_argument('--gpu', default='0', type=str, help='which gpu to be used')
+parser.add_argument('--gpu', default='0,1', type=str, help='which gpu to be used')
 parser.add_argument('--label-name', default='label', type=str, help='label name')
 parser.add_argument('--csv-dir', default='./data/stocks', type=str, help='csv path')
 parser.add_argument('--logdir', default='./tensorboard', type=str, help='tf logs path')
 parser.add_argument('--save-dir', default='./train', type=str, help='csv path')
+parser.add_argument('--eval-start', default='2020-03-11', type=str, help='time to split train|eval')
+parser.add_argument('--look-back', default=14, type=int, help='look back')
 parser.add_argument('--batch-size', default=256, type=int, help='batch size')
 parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
 parser.add_argument('--num-epochs', default=40, type=int, help='epoch number')
@@ -25,15 +27,11 @@ def train():
         os.makedirs(args.save_dir)
 
     # build dataset seperately for train and eval
-    csv_files = os.listdir(args.csv_dir)
-    csv_files = [os.path.join(args.csv_dir, fn) for fn in csv_files]
-    dataset_generator = CSVSequentialDataset(csv_files, batch_size=args.batch_size)
-    dataset = tf.data.Dataset.from_generator(dataset_generator, 
-        output_types=((tf.float32, tf.float32, tf.int32), tf.int32))
-    # data_eval = ds.create_dataset_from_file(
-    #     csv_path=os.path.join(args.csv_dir, 'single_line_test.csv'), 
-    #     batch_size=args.batch_size, num_epochs=1, 
-    #     shuffle=False, label_name=args.label_name)
+    data_train, data_eval = dataset.build_dataset_from_generator(
+        basedir=args.csv_dir,
+        batch_size=args.batch_size,
+        lookback=args.look_back,
+        validation_start=args.eval_start)
 
     model = burn_in_lstm.SimpleSequentialLSTM()
     # model = burn_in_lstm.BurnInStateLSTM()
@@ -56,10 +54,13 @@ def train():
             model.load_weights(os.path.join(args.save_dir, args.label_name + '.h5'))
         print(' [*] Loaded pretrained model {}.h5'.format(args.label_name))
 
-    callbacks = [tf.keras.callbacks.TensorBoard(log_dir=args.logdir)]
-    model.fit(dataset, 
+    callbacks = [
+        tf.keras.callbacks.TensorBoard(log_dir=args.logdir),
+        tf.keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir, 'history.h5'))
+    ]
+    model.fit(data_train, 
         epochs=args.num_epochs, 
-        #validation_data=data_eval,
+        validation_data=data_eval,
         callbacks=callbacks)
     try:
         model.save(os.path.join(args.save_dir, args.label_name + '.h5'))
