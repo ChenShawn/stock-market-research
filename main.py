@@ -11,7 +11,7 @@ parser.add_argument('--label-name', default='label', type=str, help='label name'
 parser.add_argument('--csv-dir', default='./data/stocks', type=str, help='csv path')
 parser.add_argument('--logdir', default='./tensorboard', type=str, help='tf logs path')
 parser.add_argument('--save-dir', default='./train', type=str, help='csv path')
-parser.add_argument('--eval-start', default='2020-03-11', type=str, help='time to split train|eval')
+parser.add_argument('--eval-start', default='2020-03-01', type=str, help='validation start')
 parser.add_argument('--look-back', default=14, type=int, help='look back')
 parser.add_argument('--batch-size', default=256, type=int, help='batch size')
 parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')

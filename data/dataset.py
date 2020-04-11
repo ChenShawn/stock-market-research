@@ -8,7 +8,10 @@ import collections
 import logging
 import os
 
-import data.global_variables as G
+try:
+    import data.global_variables as G
+except ModuleNotFoundError:
+    import global_variables as G
 
 logfmt = '[%(levelname)s][%(asctime)s][%(funcName)s][%(lineno)d] %(message)s'
 logging.basicConfig(filename='./data/logs/dataset.log', level=logging.INFO, format=logfmt)
@@ -72,7 +75,7 @@ class CSVSequentialDataset(object):
             batch_ys = tf.concat(batch_ys, axis=0)
             yield (xs_num, basic_num, basic_cat), batch_ys
         self.reset()
-        return self.next_cand_index
+        return 0
 
 
     def read_next_batch(self, index):
@@ -82,11 +85,7 @@ class CSVSequentialDataset(object):
             return coldf.apply(lambda x: value_hash[x]).values.astype(dtype)
 
         # Stock numerical features
-        max_entry_size = len(self.candidate_df[index]) - self.lookback - 1
-        assert max_entry_size > 0, \
-            f'data length must be larger than lookback: ' \
-            f'{len(self.candidate_df[index])} < {self.lookback}'
-        entry = random.randint(0, max_entry_size)
+        entry = self.get_subdf_entry(index)
         subdf = self.candidate_df[index].iloc[entry: entry + self.lookback]
 
         subdf_numerical = subdf[self.stock_numericals].values.astype(np.float32)
@@ -135,11 +134,19 @@ class CSVSequentialDataset(object):
                 df[col] = df[col].apply(norm_fn_partialized)
         return df
 
+    def get_subdf_entry(self, index):
+        max_entry_size = len(self.candidate_df[index]) - self.lookback
+        assert max_entry_size >= 0, \
+            f'data length must be larger than lookback: ' \
+            f'{len(self.candidate_df[index])} < {self.lookback}'
+        entry = random.randint(0, max_entry_size)
+        return entry
+
     def reset(self):
         random.shuffle(self.csv_path)
         self.num_reload = 0
-        self.candidates = self.csv_path[: batch_size]
-        self.iterators = [0 for _ in range(batch_size)]
+        self.candidates = self.csv_path[: self.batch_size]
+        self.iterators = [0 for _ in range(self.batch_size)]
         self.candidate_df = [self.init_numerical_csv(cand) for cand in self.candidates]
         self.logger.info('CSV dataset status has been reset')
 
@@ -155,7 +162,7 @@ class CSVSequentialDataset(object):
 
 
 class CSVSequentialTrainingSet(CSVSequentialDataset):
-    def __init__(self, validation_start='2020-03-11', *args, **kwargs):
+    def __init__(self, validation_start='2020-03-01', *args, **kwargs):
         self.validation_start = validation_start
         super(CSVSequentialTrainingSet, self).__init__(*args, **kwargs)
 
@@ -168,8 +175,8 @@ class CSVSequentialTrainingSet(CSVSequentialDataset):
         if not csvname.endswith('stock_basics.csv'):
             df = df[df['date'] < self.validation_start]
         assert len(df) >= self.lookback, \
-            f'User should confirm `len(df)>lookback` is strictly satisfied in download.py' \
-            f'len(df)={len(df)} lookback={self.lookback}'
+            f'User should confirm `len(df)>lookback` is strictly satisfied in download.py ' \
+            f'file={csvname} len(df)={len(df)} lookback={self.lookback}'
         for col in df.columns:
             if col in self.meanvars.keys():
                 norm_fn_partialized = functools.partial(self.normalize_gaussian_data, col)
@@ -178,7 +185,7 @@ class CSVSequentialTrainingSet(CSVSequentialDataset):
 
 
 class CSVSequentialValidationSet(CSVSequentialDataset):
-    def __init__(self, validation_start='2020-03-11', *args, **kwargs):
+    def __init__(self, validation_start='2020-03-01', *args, **kwargs):
         self.validation_start = validation_start
         super(CSVSequentialValidationSet, self).__init__(*args, **kwargs)
 
@@ -187,8 +194,8 @@ class CSVSequentialValidationSet(CSVSequentialDataset):
         if not csvname.endswith('stock_basics.csv'):
             df = df[df['date'] > self.validation_start]
         assert len(df) >= self.lookback, \
-            f'User should confirm `len(df)>lookback` is strictly satisfied in download.py' \
-            f'len(df)={len(df)} lookback={self.lookback}'
+            f'User should confirm `len(df)>lookback` is strictly satisfied: ' \
+            f'file={csvname} len(df)={len(df)} lookback={self.lookback}'
         for col in df.columns:
             if col in self.meanvars.keys():
                 norm_fn_partialized = functools.partial(self.normalize_gaussian_data, col)
@@ -198,6 +205,7 @@ class CSVSequentialValidationSet(CSVSequentialDataset):
 
 def build_dataset_from_generator(basedir, batch_size=32, lookback=14, 
                                  validation_start='2020-03-11'):
+    # for training set using `os.listdir`
     csv_files = os.listdir(basedir)
     csv_files = [os.path.join(basedir, fn) for fn in csv_files]
     generator_train = CSVSequentialTrainingSet(
@@ -205,9 +213,13 @@ def build_dataset_from_generator(basedir, batch_size=32, lookback=14,
         csv_path=csv_files, 
         lookback=lookback,
         batch_size=batch_size)
+    # for evaluating using local txt file
+    with open('./data/validation_files.txt', 'r') as fd: 
+        lines = fd.readlines()
+        eval_files = [ln[: -1] for ln in lines]
     generator_eval = CSVSequentialValidationSet(
         validation_start=validation_start, 
-        csv_path=csv_files, 
+        csv_path=eval_files, 
         lookback=lookback,
         batch_size=batch_size)
     data_train = tf.data.Dataset.from_generator(generator_train, 
