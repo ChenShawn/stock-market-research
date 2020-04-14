@@ -14,3 +14,13 @@
 > USING THE ANALYSIS RESULT OR MODELS.
 
 用本repo里的数据分析结果或模型买股票赔了钱作者概不负责 :)
+
+#### Documentation
+
+- [Model benchmark results](https://github.com/ChenShawn/stock-market-research/blob/master/docs/model_benchmark.md)
+- [Online stock selection results](https://github.com/ChenShawn/stock-market-research/blob/master/docs/stock_selection.md)
+
+#### TODO
+
+- [x] 在线筛选：Online stock selection
+- [ ] 回测：Simulating on historical data
