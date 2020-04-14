@@ -1,6 +1,6 @@
 set -x
 
-rm -rf train/*
+# rm -rf train/*
 rm -rf tensorboard/*
 rm -rf data/logs/*
 rm nohup.out

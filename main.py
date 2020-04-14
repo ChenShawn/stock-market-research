@@ -27,11 +27,17 @@ def train():
         os.makedirs(args.save_dir)
 
     # build dataset seperately for train and eval
-    data_train, data_eval = dataset.build_dataset_from_generator(
+    # data_train, data_eval = dataset.build_dataset_from_generator(
+    #     basedir=args.csv_dir,
+    #     batch_size=args.batch_size,
+    #     lookback=args.look_back,
+    #     num_epochs=args.num_epochs,
+    #     validation_start=args.eval_start)
+    data_train, data_eval = dataset.build_tfrecord_dataset(
         basedir=args.csv_dir,
         batch_size=args.batch_size,
-        lookback=args.look_back,
-        validation_start=args.eval_start)
+        num_epochs=args.num_epochs
+    )
 
     model = burn_in_lstm.SimpleSequentialLSTM()
     # model = burn_in_lstm.BurnInStateLSTM()
@@ -56,7 +62,8 @@ def train():
 
     callbacks = [
         tf.keras.callbacks.TensorBoard(log_dir=args.logdir),
-        tf.keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir, 'history.h5'))
+        tf.keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir, 'history.{epoch:02d}.h5')),
+        tf.keras.callbacks.EarlyStopping()
     ]
     model.fit(data_train, 
         epochs=args.num_epochs, 

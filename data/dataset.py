@@ -31,8 +31,12 @@ class CSVSequentialDataset(object):
     TODO:
     1. random access to csv: done
     2. terminal condition: done 
-    3. Split training set and validation set.
+    3. Split training set and validation set: done
     4. Add logging: done
+    5. performance optimization
+    
+    For performance tips refer to:
+    https://tensorflow.google.cn/guide/data_performance?hl=zh-cn
     """
     def __init__(self, csv_path, lookback=14, batch_size=32):
         self.csv_path = csv_path.copy()
@@ -192,7 +196,7 @@ class CSVSequentialValidationSet(CSVSequentialDataset):
     def init_numerical_csv(self, csvname):
         df = pd.read_csv(csvname)
         if not csvname.endswith('stock_basics.csv'):
-            df = df[df['date'] > self.validation_start]
+            df = df[df['date'] >= self.validation_start]
         assert len(df) >= self.lookback, \
             f'User should confirm `len(df)>lookback` is strictly satisfied: ' \
             f'file={csvname} len(df)={len(df)} lookback={self.lookback}'
@@ -203,7 +207,7 @@ class CSVSequentialValidationSet(CSVSequentialDataset):
         return df
 
 
-def build_dataset_from_generator(basedir, batch_size=32, lookback=14, 
+def build_dataset_from_generator(basedir, batch_size=32, lookback=14, num_epochs=20,
                                  validation_start='2020-03-11'):
     # for training set using `os.listdir`
     csv_files = os.listdir(basedir)
@@ -223,9 +227,39 @@ def build_dataset_from_generator(basedir, batch_size=32, lookback=14,
         lookback=lookback,
         batch_size=batch_size)
     data_train = tf.data.Dataset.from_generator(generator_train, 
-        output_types=((tf.float32, tf.float32, tf.int32), tf.int32))
+        output_types=((tf.float32, tf.float32, tf.int32), tf.int32)
+    ).repeat(num_epochs)
     data_eval = tf.data.Dataset.from_generator(generator_eval, 
         output_types=((tf.float32, tf.float32, tf.int32), tf.int32))
+    return data_train, data_eval
+
+
+def build_tfrecord_dataset(basedir, batch_size=128, num_epochs=20):
+    def _parse_function(exam_proto):
+        feature_description = {
+            'seqfeat': tf.io.FixedLenFeature(shape=[], dtype=tf.string),
+            'basic_num': tf.io.FixedLenFeature(shape=[], dtype=tf.string),
+            'basic_cat': tf.io.FixedLenFeature(shape=[], dtype=tf.string),
+            'label': tf.io.FixedLenFeature(shape=[], dtype=tf.string)
+        }
+        res = tf.io.parse_single_example(exam_proto, feature_description)
+        seqfeat = tf.reshape(tf.io.decode_raw(res['seqfeat'], tf.float32), [14, 20])
+        basic_num = tf.reshape(tf.io.decode_raw(res['basic_num'], tf.float32), [19])
+        basic_cat = tf.reshape(tf.io.decode_raw(res['basic_cat'], tf.int32), [3])
+        label = tf.reshape(tf.io.decode_raw(res['label'], tf.int32), [1])
+        return (seqfeat, basic_num, basic_cat), label
+
+    base_train = os.path.join(basedir, 'train')
+    base_eval = os.path.join(basedir, 'eval')
+    record_train = os.listdir(base_train)
+    record_train = [os.path.join(base_train, fn) for fn in record_train]
+    record_eval = os.listdir(base_eval)
+    record_eval = [os.path.join(base_eval, fn) for fn in record_eval]
+    data_train = tf.data.TFRecordDataset(record_train).map(_parse_function)
+    data_eval = tf.data.TFRecordDataset(record_eval).map(_parse_function)
+
+    data_train = data_train.batch(batch_size).shuffle(2048)
+    data_eval = data_eval.batch(batch_size)
     return data_train, data_eval
 
 

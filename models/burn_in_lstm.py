@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from collections import namedtuple
+import sklearn as sk
 
 from . import seq2seq
 
@@ -18,7 +19,31 @@ def build_lstm_by_device(units, input_shape):
     return lstm
 
 
-class SimpleSequentialLSTM(tf.keras.Model):
+class AbstractAnalyzer(object):
+    def stock_cosine_similarity(self, x, y):
+        """stock_cosine_similarity
+        For all three functions below must conform:
+        Both input x and y must be type int
+        """
+        emb_xs = self.code_embedding(x)
+        emb_ys = self.code_embedding(y)
+        norm_product = tf.norm(emb_xs, axis=-1) * tf.norm(emb_ys, axis=-1)
+        return tf.reduce_sum(emb_xs * emb_ys, axis=-1) / norm_product
+
+    def industry_cosine_similarity(self, x, y):
+        emb_xs = self.industry_embedding(x)
+        emb_ys = self.industry_embedding(y)
+        norm_product = tf.norm(emb_xs, axis=-1) * tf.norm(emb_ys, axis=-1)
+        return tf.reduce_sum(emb_xs * emb_ys, axis=-1) / norm_product
+
+    def area_cosine_similarity(self, x, y):
+        emb_xs = self.area_embedding(x)
+        emb_ys = self.area_embedding(y)
+        norm_product = tf.norm(emb_xs, axis=-1) * tf.norm(emb_ys, axis=-1)
+        return tf.reduce_sum(emb_xs * emb_ys, axis=-1) / norm_product
+
+
+class SimpleSequentialLSTM(tf.keras.Model, AbstractAnalyzer):
     """SimpleSequentialLSTM
     A simpler version of BurnInStateLSTM,
     implemented for debugging and baseline comparison
@@ -59,7 +84,7 @@ class SimpleSequentialLSTM(tf.keras.Model):
         return logits
 
 
-class BurnInStateLSTM(tf.keras.Model):
+class BurnInStateLSTM(tf.keras.Model, AbstractAnalyzer):
     def __init__(self, burn_in_length=7):
         super(BurnInStateLSTM, self).__init__()
         self.burn_in_length = burn_in_length
@@ -91,9 +116,9 @@ class BurnInStateLSTM(tf.keras.Model):
         updated_seq = tf.stack(seq_embedding[self.burn_in_length: ], axis=1)
         encoder_output, state_h, state_c = self.lstm(burn_in_input)
         
-        encoder_output = tf.stop_gradient(encoder_output)
-        state_h = tf.stop_gradient(state_h)
-        state_c = tf.stop_gradient(state_c)
+        # encoder_output = tf.stop_gradient(encoder_output)
+        # state_h = tf.stop_gradient(state_h)
+        # state_c = tf.stop_gradient(state_c)
 
         decoder_output, _, __ = self.lstm(updated_seq, initial_state=(state_h, state_c))
         context, _ = self.luong_attention(encoder_output, decoder_output)
@@ -117,29 +142,6 @@ class BurnInStateLSTM(tf.keras.Model):
         ], axis=-1)
         logits = self.global_dense(global_features)
         return logits
-
-
-    def stock_cosine_similarity(self, x, y):
-        """stock_cosine_similarity
-        For all three functions below must conform:
-        Both input x and y must be type int
-        """
-        emb_xs = self.code_embedding(x)
-        emb_ys = self.code_embedding(y)
-        norm_product = tf.norm(emb_xs, axis=-1) * tf.norm(emb_ys, axis=-1)
-        return tf.reduce_sum(emb_xs * emb_ys, axis=-1) / norm_product
-
-    def industry_cosine_similarity(self, x, y):
-        emb_xs = self.industry_embedding(x)
-        emb_ys = self.industry_embedding(y)
-        norm_product = tf.norm(emb_xs, axis=-1) * tf.norm(emb_ys, axis=-1)
-        return tf.reduce_sum(emb_xs * emb_ys, axis=-1) / norm_product
-
-    def area_cosine_similarity(self, x, y):
-        emb_xs = self.area_embedding(x)
-        emb_ys = self.area_embedding(y)
-        norm_product = tf.norm(emb_xs, axis=-1) * tf.norm(emb_ys, axis=-1)
-        return tf.reduce_sum(emb_xs * emb_ys, axis=-1) / norm_product
 
 
     def get_state_and_context(self, input_seq):

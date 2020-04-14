@@ -1,6 +1,8 @@
 *.csv
 __pycache__
 data/logs
+docs/.ipynb_checkpoints
+train
 tensorboard
 *.txt
 *.tfrecord
