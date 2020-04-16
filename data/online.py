@@ -4,6 +4,7 @@ import numpy as np
 import tushare as ts
 import functools
 import datetime
+import random
 import json
 
 try:
@@ -20,7 +21,11 @@ def get_representation(df, colname):
 
 
 def get_today(diff=0):
+    """get_today
+    Set diff=1 to allow running `test.py` during transaction time
+    """
     today = datetime.datetime.now()
+    today -= datetime.timedelta(diff)
     month = str(today.month).zfill(2)
     day = str(today.day).zfill(2)
     return f'{today.year}-{month}-{day}'
@@ -65,8 +70,19 @@ def filter_valid_stocks(stock_basics, codestr):
     return True
 
 
+def get_timediff(xs, ys):
+    def convert(val):
+        val = val.split('-')
+        val = list(map(int, val))
+        return datetime.datetime(*val)
+    xs = convert(xs)
+    ys = convert(ys)
+    diff = xs - ys
+    return abs(diff.days)
+
+
 class OnlineGenerator(object):
-    def __init__(self, start_date='20200101', lookback=14):
+    def __init__(self, start_date='20200101', lookback=14, today=None):
         self.lookback = lookback
         self.stock_basics = pd.read_csv('./data/stock_basics.csv')
         self.codenum_to_onehot = get_representation(self.stock_basics, 'codenum')
@@ -80,10 +96,31 @@ class OnlineGenerator(object):
         self.valid_subdf = self.stock_basics[valid_index]
         assert len(self.valid_subdf) > 0, \
             f'Invalid start_date definition {start_date}'
+        self.codelist = self.valid_subdf['codenum'].values.tolist()
+        random.shuffle(self.codelist)
+
+        if today is None:
+            self.today = get_today()
+            self.yesterday = get_today(diff=1)
+        elif isinstance(today, str):
+            self.today = today
+            timestr = today.split('-')
+            timestr = list(map(int, timestr))
+            timer = datetime.datetime(*timestr)
+            yesterday = timer - datetime.timedelta(1)
+            while yesterday.weekday() >= 5:
+                yesterday -= datetime.timedelta(1)
+            self.yesterday = '{}-{}-{}'.format(
+                str(yesterday.year).zfill(4),
+                str(yesterday.month).zfill(2),
+                str(yesterday.day).zfill(2)
+            )
+        else:
+            raise RuntimeError('today must be either type str or None')
 
 
     def __iter__(self):
-        for codenum in self.valid_subdf['codenum']:
+        for codenum in self.codelist:
             codestr = str(codenum).zfill(6)
             codedf = self.download_nearest_data(codestr)
             if codedf is None:
@@ -95,25 +132,26 @@ class OnlineGenerator(object):
 
     def download_nearest_data(self, codestr):
         # step 1: download data and check validity
-        online_df = ts.get_hist_data(codestr, start='2020-03-01')
+        online_df = ts.get_hist_data(codestr)
         if online_df is None:
             return None
-        today = get_today()
 
         online_df['date'] = online_df.index.values
         online_df = online_df.sort_values(by='date')
         try:
+            online_df = online_df[online_df['date'] <= self.today]
             latest_date = online_df['date'][-1]
         except:
             return None
-        if len(online_df) < 14 or latest_date != today:
-            print(f'len(online_df)={len(online_df)} get_today={today} latest={latest_date}')
+        # if len(online_df) < 14 or (latest_date != self.today and latest_date != self.yesterday):
+        if len(online_df) < 14 or get_timediff(latest_date, self.today) > 5:
+            loginfo = 'len(online_df)={} get_today={} yesterday={} latest={}'
+            print(f'len(online_df)={len(online_df)} get_today={self.today} yesterday={self.yesterday} latest={latest_date}')
             return None
         online_df = online_df.iloc[-self.lookback: ]
         
         # step 2: feature processing
         online_df['weekday'] = online_df['date'].apply(get_weekday)
-        online_df['madiff'] = online_df['ma10'] - online_df['ma20']
         online_df['madiff'] = online_df['ma10'] - online_df['ma20']
         madiff_mean = online_df['madiff'].rolling(9, center=True).mean()
         madiff_mean.iloc[: 4] = online_df['madiff'].iloc[: 4]
@@ -162,7 +200,35 @@ class OnlineGenerator(object):
             f'find {len(basic_line)} lines of {codenum} in stock_basics.csv'
         return basic_line[name].values.tolist()[0]
 
-    
+    @property
+    def time_tracking(self):
+        """property time_tracking
+        Call sth like `online_generator.time_tracking = '1989-06-04' to reset time`,
+        which can be used in history backtracking test.
+        """
+        return self.today
+
+    @time_tracking.setter
+    def time_tracking(self, timeval):
+        random.shuffle(self.codelist)
+        if not isinstance(timeval, str):
+            raise RuntimeError('timeval must be type str')
+        thistime = timeval.split('-')
+        thistime = list(map(int, thistime))
+        thistime = datetime.datetime(*thistime)
+        lasttime = thistime - datetime.timedelta(1)
+        while lasttime.weekday() >= 5:
+            lasttime -= datetime.timedelta(1)
+        self.today = '{}-{}-{}'.format(
+            str(thistime.year).zfill(4),
+            str(thistime.month).zfill(2),
+            str(thistime.day).zfill(2)
+        )
+        self.yesterday = '{}-{}-{}'.format(
+            str(lasttime.year).zfill(4),
+            str(lasttime.month).zfill(2),
+            str(lasttime.day).zfill(2)
+        )
 
 
 if __name__ == '__main__':

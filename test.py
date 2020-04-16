@@ -67,9 +67,10 @@ def online_filtering(model, threshold=0.8, logfd=None):
         if prob > threshold:
             codename = generator.from_code_to_name(int(codestr), 'name')
             time_to_market = generator.from_code_to_name(int(codestr), 'timeToMarket')
-            positive_list.append((codestr, codename, time_to_market, prob))
+            industry = generator.from_code_to_name(int(codestr), 'industry')
+            positive_list.append(codestr)
             if logfd is not None:
-                logline = f'{codestr} | {codename} | {time_to_market} | {prob}\n'
+                logline = f'{codestr} | {codename} | {time_to_market} | {industry} | {prob}\n'
                 logfd.write(logline)
                 logfd.flush()
             print(f' [*] Stock {codestr} is positive')

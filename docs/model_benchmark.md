@@ -10,10 +10,12 @@ Early stopping is applied as the model get overfitting quite easily.
 
 ## 2. Model results
 
-Model | Version | Accuracy | Precision | Recall | Remarks |
---- | :--: | :--: | :---: | :---: | :---:
-SimpleSequentialModel | V1 | 86.31% | 92.37% | 90.55% | val_acc > train_acc
-LuongAttentionLSTM | V1 | 85.52% | 92.52% | 89.33% | val_acc > train_acc
+The columns `2018` and `2019` represents the percentage of profit obtained via trading simulation in the corresponding year. By defaults, simulation time starts from Dec last year to Dec this year.
+
+Model | Version | Accuracy | Precision | Recall | 2018 | 2019 | Remarks |
+--- | :--: | :--: | :---: | :---: | :---: | :---: | :---: 
+SimpleSequentialModel | V1 | 86.31% | 92.37% | 90.55% | 74.33% | 52.59% | val_acc > train_acc
+LuongAttentionLSTM | V1 | 85.52% | 92.52% | 89.33% |  |  | 
 
 ## 3. Embedding quality
 

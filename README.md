@@ -23,4 +23,6 @@
 #### TODO
 
 - [x] 在线筛选：Online stock selection
-- [ ] 回测：Simulating on historical data
+- [x] 回测：Simulating trading on historical data
+  - [ ] Allowing dynamic maintainance of positive stock lists
+  - [ ] Allowing more meticulous high-frequency trading simulation
