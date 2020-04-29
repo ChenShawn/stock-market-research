@@ -7,8 +7,9 @@ from data import dataset
 
 parser = argparse.ArgumentParser(description='Training')
 parser.add_argument('--gpu', default='0,1', type=str, help='which gpu to be used')
+parser.add_argument('--model', default='simple', type=str, help='simple|luong')
 parser.add_argument('--label-name', default='label', type=str, help='label name')
-parser.add_argument('--csv-dir', default='./data/stocks', type=str, help='csv path')
+parser.add_argument('--csv-dir', default='./data/records/', type=str, help='csv path')
 parser.add_argument('--logdir', default='./tensorboard', type=str, help='tf logs path')
 parser.add_argument('--save-dir', default='./train', type=str, help='csv path')
 parser.add_argument('--eval-start', default='2020-03-01', type=str, help='validation start')
@@ -20,27 +21,29 @@ parser.add_argument('--memory-growth', action="store_true", default=False)
 args = parser.parse_args()
 
 
+def load_model():
+    if args.model == 'simple':
+        model = burn_in_lstm.SimpleSequentialLSTM()
+    elif args.model == 'luong':
+        model = burn_in_lstm.seq2seqAttentionModel()
+    else:
+        raise NotImplementedError('args.model must be simple|luong')
+    return model
+
+
 def train():
     if not os.path.exists(args.logdir):
         os.makedirs(args.logdir)
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
-
-    # build dataset seperately for train and eval
-    # data_train, data_eval = dataset.build_dataset_from_generator(
-    #     basedir=args.csv_dir,
-    #     batch_size=args.batch_size,
-    #     lookback=args.look_back,
-    #     num_epochs=args.num_epochs,
-    #     validation_start=args.eval_start)
+    
     data_train, data_eval = dataset.build_tfrecord_dataset(
         basedir=args.csv_dir,
         batch_size=args.batch_size,
-        num_epochs=args.num_epochs
+        num_epochs=1
     )
 
-    model = burn_in_lstm.SimpleSequentialLSTM()
-    # model = burn_in_lstm.BurnInStateLSTM()
+    model = load_model()
     loss = tf.keras.losses.BinaryCrossentropy(from_logits=True)
     adam = tf.keras.optimizers.Adam(lr=args.lr)
     metrics = [
@@ -62,17 +65,13 @@ def train():
 
     callbacks = [
         tf.keras.callbacks.TensorBoard(log_dir=args.logdir),
-        tf.keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir, 'history.{epoch:02d}.h5')),
+        tf.keras.callbacks.ModelCheckpoint(os.path.join(args.save_dir, 'history.{epoch:02d}.hdf5')),
         tf.keras.callbacks.EarlyStopping()
     ]
     model.fit(data_train, 
         epochs=args.num_epochs, 
         validation_data=data_eval,
         callbacks=callbacks)
-    try:
-        model.save(os.path.join(args.save_dir, args.label_name + '.h5'))
-    except:
-        model.save_weights(os.path.join(args.save_dir, args.label_name + '.h5'))
 
     # evaluation
     # results = model.evaluate(data_eval)

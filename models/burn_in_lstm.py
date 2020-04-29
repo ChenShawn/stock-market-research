@@ -19,6 +19,19 @@ def build_lstm_by_device(units, input_shape):
     return lstm
 
 
+def build_gru_by_device(units, input_shape):
+    if tf.test.is_built_with_cuda():
+        gru = tf.keras.layers.GRU(
+            units=units, input_shape=(None, input_shape), 
+            return_sequences=True, return_state=True)
+    else:
+        gru = tf.keras.layers.RNN(
+            tf.keras.layers.GRUCell(units), 
+            input_shape=(None, input_shape), 
+            return_sequences=True, return_state=True)
+    return gru
+
+
 class AbstractAnalyzer(object):
     def stock_cosine_similarity(self, x, y):
         """stock_cosine_similarity
@@ -169,6 +182,54 @@ class BurnInStateLSTM(tf.keras.Model, AbstractAnalyzer):
 
         states_tuple = namedtuple('HiddenState', ['h', 'c'])
         return HiddenState(h=state_h, c=state_c), context
+
+
+class seq2seqAttentionModel(tf.keras.Model, AbstractAnalyzer):
+    """seq2seqAttentionModel
+    Compared with previous models:
+    1. More learned parameters, larger capacity
+    2. Use GRU instead of LSTM
+    3. Use keras built-in Luong-attention with standard seq2seq architecture
+    """
+    def __init__(self):
+        super(seq2seqAttentionModel, self).__init__()
+        self.code_embedding = tf.keras.layers.Embedding(3825, 64)
+        self.area_embedding = tf.keras.layers.Embedding(32, 6)
+        self.industry_embedding = tf.keras.layers.Embedding(110, 12)
+
+        self.gru = build_gru_by_device(256, 20)
+        self.attention = seq2seq.LuongAttention(256)
+
+        self.shared_dense = tf.keras.layers.Dense(64, 'relu')
+        self.basic_dense = tf.keras.layers.Dense(128, 'relu')
+        self.global_dense = tf.keras.layers.Dense(1)
+
+
+    def call(self, input_ops):
+        input_seq, input_basic_num, input_basic_cat = input_ops
+
+        # processing sequential features
+        seq_list = tf.unstack(input_seq, axis=1)
+        seq_embedding = [self.shared_dense(seq) for seq in seq_list]
+        encoder_input = tf.stack(seq_embedding, axis=1)
+        encoder_output, hidden_states = self.gru(encoder_input)
+        context, alignment = self.attention(encoder_output, hidden_states)
+        context = tf.reshape(context, [-1, 256])
+        
+        # processing basic features
+        industry, area, codenum = tf.unstack(input_basic_cat, axis=-1)
+        industry_embedded = self.industry_embedding(industry)
+        area_embedded = self.area_embedding(area)
+        codenum_embedded = self.code_embedding(codenum)
+        basic_feats = self.basic_dense(tf.concat([
+            industry_embedded,
+            area_embedded,
+            codenum_embedded,
+            input_basic_num
+        ], axis=-1))
+        output = self.global_dense(tf.concat([basic_feats, context], axis=-1))
+        return output
+
 
         
 if __name__ == '__main__':

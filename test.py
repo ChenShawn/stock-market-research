@@ -25,6 +25,8 @@ def load_model():
         model = burn_in_lstm.SimpleSequentialLSTM()
     elif args.model == 'burnin':
         model = burn_in_lstm.BurnInStateLSTM()
+    elif args.model == 'luong':
+        model = burn_in_lstm.seq2seqAttentionModel()
     else:
         raise NotImplementedError('model must be among simple|burnin')
 
@@ -44,16 +46,17 @@ def load_model():
         except:
             model.load_weights(os.path.join(args.save_dir, args.ckpt_name + '.hdf5'))
         print(' [*] Loaded pretrained model {}.hdf5'.format(args.ckpt_name))
+    else:
+        print(' [*] FAILED TO FIND ANY VALID MODEL NAMED {}.hdf5'.format(args.ckpt_name))
     return model
 
 
-def evaluate():
+def evaluate(model):
     data_train, data_eval = dataset.build_tfrecord_dataset(
         basedir=args.csv_dir,
         batch_size=args.batch_size,
         num_epochs=args.num_epochs
     )
-    model = load_model()
     results = model.evaluate(data_eval)
     print(results)
 
@@ -96,6 +99,8 @@ if __name__ == '__main__':
             os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     model = load_model()
+    raise RuntimeError
+    evaluate(model)
     with open('./docs/stock_selection.md', 'a+') as fd:
         positive_list = online_filtering(model, logfd=fd)
     print('[*] Done!!')
