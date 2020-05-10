@@ -23,7 +23,7 @@ Model | Version | Accuracy | Precision | Recall | 2018 | 2019 | Remarks |
 --- | :--: | :--: | :---: | :---: | :---: | :---: | :---: 
 SimpleSequentialModel | V1 | 86.31% | 92.37% | 90.55% | 74.33% | 52.59% | val_acc > train_acc
 LuongAttentionLSTM | V1 | 85.52% | 92.52% | 89.33% |  |  | 
-LuongAttentionLSTM | V2 | 82.67% | 90.90% | 87.12% |
+seq2seqAttentionLSTM | V2 | 82.67% | 90.90% | 87.12% |
 
 ## 4. Embedding quality
 

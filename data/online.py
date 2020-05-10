@@ -94,6 +94,9 @@ class OnlineGenerator(object):
         
         valid_index = self.stock_basics['timeToMarket'].apply(lambda x: str(x) < start_date)
         self.valid_subdf = self.stock_basics[valid_index]
+        # updated in May 10th, 2020: filter out all ST stocks
+        valid_index = self.valid_subdf['name'].apply(lambda x: 'ST' not in x)
+        self.valid_subdf = self.valid_subdf[valid_index]
         assert len(self.valid_subdf) > 0, \
             f'Invalid start_date definition {start_date}'
         self.codelist = self.valid_subdf['codenum'].values.tolist()

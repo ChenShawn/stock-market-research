@@ -11,7 +11,9 @@ parser = argparse.ArgumentParser(description='Training')
 parser.add_argument('--gpu', default='0,1', type=str, help='which gpu to be used')
 parser.add_argument('--ckpt-name', default='basic_lstm.v2.01', type=str, help='label name')
 parser.add_argument('--model', default='simple', type=str, help='simple|burnin')
+parser.add_argument('--thresh', default=0.8, type=float, help='stock selection threshold')
 parser.add_argument('--csv-dir', default='./data/records/', type=str, help='csv path')
+parser.add_argument('--docs', default='./docs/stock_selection.md', type=str, help='markdown path')
 parser.add_argument('--save-dir', default='./train', type=str, help='csv path')
 parser.add_argument('--batch-size', default=64, type=int, help='RESERVED')
 parser.add_argument('--lr', default=1e-3, type=float, help='RESERVED')
@@ -62,7 +64,7 @@ def evaluate(model):
 
 
 def online_filtering(model, threshold=0.8, logfd=None):
-    positive_list = []
+    positive_list = {'code': [], 'name': [], 'industry': []}
     generator = online.OnlineGenerator()
     for features, codestr in generator:
         logit = model.predict(features)
@@ -71,7 +73,9 @@ def online_filtering(model, threshold=0.8, logfd=None):
             codename = generator.from_code_to_name(int(codestr), 'name')
             time_to_market = generator.from_code_to_name(int(codestr), 'timeToMarket')
             industry = generator.from_code_to_name(int(codestr), 'industry')
-            positive_list.append(codestr)
+            positive_list['code'].append(codestr)
+            positive_list['name'].append(codename)
+            positive_list['industry'].append(industry)
             if logfd is not None:
                 logline = f'{codestr} | {codename} | {time_to_market} | {industry} | {prob}\n'
                 logfd.write(logline)
@@ -99,9 +103,11 @@ if __name__ == '__main__':
             os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     model = load_model()
-    raise RuntimeError
-    evaluate(model)
-    with open('./docs/stock_selection.md', 'a+') as fd:
+    #raise RuntimeError
+    #evaluate(model)
+    with open(args.docs, 'a+') as fd:
         positive_list = online_filtering(model, logfd=fd)
+    #cmd = 'tail -n +7 {} | sort -r -t "|" -k 5 >> {}'
+    #os.system(cmd.format(args.docs, args.docs))
     print('[*] Done!!')
     

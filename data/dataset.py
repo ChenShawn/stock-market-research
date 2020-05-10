@@ -207,6 +207,31 @@ class CSVSequentialValidationSet(CSVSequentialDataset):
         return df
 
 
+class TextLineCSVGenerator(object):
+    def __init__(self, csv_file, colspec, batch_size=64, lookback=14):
+        """TextLineCSVGenerator.__init__
+        An attempt to generator batched data from csv file
+        csv_files: type list
+        colspec: type OrderedDict, key: colname -> value: function
+        """
+        self.csv_file = csv_file
+        self.batch_size = batch_size
+        self.lookback = lookback
+        self.fd = open(csv_file, 'r')
+        self.colspec = colspec
+        self.iterator = 0
+        self.fd.readline()
+
+    
+    def __call__(self):
+        lines = [fd.readline() for _ in range(self.lookback)]
+        pass
+
+
+    def __del__(self):
+        self.fd.close()
+
+
 def build_dataset_from_generator(basedir, batch_size=32, lookback=14, num_epochs=20,
                                  validation_start='2020-03-11'):
     # for training set using `os.listdir`
