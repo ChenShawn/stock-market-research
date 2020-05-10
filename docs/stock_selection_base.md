@@ -1,6 +1,6 @@
 # Industry Statistics
 
-<img width="100%" src="/ChenShawn/stock-market-research/blob/master/docs/images/stock_selection_stats.png">
+![stock_selection](./images/stock_selection_stats.png)
 
 # Stock Selection
 
