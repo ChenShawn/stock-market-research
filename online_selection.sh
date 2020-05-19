@@ -10,6 +10,7 @@ cp ${base_file} ${target_file}
 python test.py --docs ${tmp_file} --thresh 0.8
 
 cat ${tmp_file} | sort -r -t "|" -k ${probidx} >> ${target_file} && rm -f ${tmp_file}
+cd ./data/ && python statistics.py && cd -
 
 echo "Finished processing ${target_file}!!"
 #echo `head -n 40 ${target_file}`
